@@ -1,0 +1,956 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>ISMTelemetryBase</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+using DataContracts = Microsoft.ApplicationInsights.DataContracts;
+
+/// <summary>
+/// Base class for Telemetry
+/// </summary>
+abstract class ISMTelemetryBase
+{
+    protected Map basePropertyMap = new Map(Types::String, Types::String);
+    protected Map runtimePropertyMap = new Map(Types::String, Types::String);
+
+    System.Diagnostics.Stopwatch stopWatch = new System.Diagnostics.Stopwatch();
+
+    protected ISMTelemetryParameterSetup logParams;
+
+    //you can fill this field or not, if you don't fill it, it will be set to 0
+    protected str eventId;
+
+    protected SysPackable telemetryConfig;
+
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    protected void new()
+    {
+        stopWatch = new System.Diagnostics.Stopwatch();
+        stopWatch.Start();
+
+        this.initialize();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initialize</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Initializes the telemetry.
+    /// </summary>
+    public void initialize()
+    {
+        logParams = ISMTelemetryParameterSetup::find(this.telemetryName());
+
+        if (!logParams)
+        {
+            this.initializeParameterSetup(logParams);
+        }
+
+        DictClass dictClass = new DictClass(className2Id(this.telemetryConfigurationName()));
+        telemetryConfig = dictClass.makeObject();
+        if (logParams.TelemetryConfiguration == conNull())
+        {
+            this.initializeConfiguration(telemetryConfig);
+            logParams.TelemetryConfiguration = telemetryConfig.pack();
+        }
+        else
+        {
+            telemetryConfig.unpack(logParams.TelemetryConfiguration);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initializeParameterSetup</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Initializes the parameter setup values.
+    /// </summary>
+    /// <param name = "_parameterSetup">The parameter setup record to initialize.</param>
+    protected void initializeParameterSetup(ISMTelemetryParameterSetup _parameterSetup)
+    {
+        _parameterSetup.TelemetryClass = this.telemetryName();
+        _parameterSetup.IsEnabled = NoYes::Yes;
+        _parameterSetup.SeverityLevel = ISMTelemetrySeverityLevel::Information;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initializeConfiguration</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Initializes the configuration.
+    /// </summary>
+    /// <param name = "_configuration">The configuration to initialize</param>
+    /// <remarks>
+    /// Override this method in the subclass if custom configuration initialization is required.
+    /// </remarks>
+    protected void initializeConfiguration(SysPackable _configuration)
+    {
+        //no default implementation
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getParameterSetup</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Gets the telemetry parameter setup
+    /// </summary>
+    /// <returns>The telemetry parameter setup</returns>
+    public ISMTelemetryParameterSetup getParameterSetup()
+    {
+        return logParams;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processMetric</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Method ProcessMetric
+    /// </summary>
+    /// <param name = "_value">Value of the metric</param>
+    public final void processMetric(real _value)
+    {
+        try
+        {
+            this.logMetric(_value);
+        }
+        catch
+        {
+            warning(strFmt("@ISM:ISMTelemetryMetricError",classId2Name(classIdGet(this))));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>addStandardProperties</Name>
+				<Source><![CDATA[
+    /// <summary>
+    ///  Adds standard properties to the telemetry
+    /// </summary>
+    protected void addStandardProperties()
+    {
+        try
+        {
+            this.addBaseProperty(ISMTelemetryProperties::CurrentUserId,curUserId());
+            this.addBaseProperty(ISMTelemetryProperties::DataAreaId,curExt());
+
+            //adding Task ID
+            if (Global::isRunningOnBatch())
+            {
+                Batch batchTask = BatchHeader::getCurrentBatchTask();
+                this.addBaseProperty(ISMTelemetryProperties::BatchJobTaskId, int642Str(batchTask.RecId));
+            }
+
+
+            /* This is not required anymore its logged by default in SysApplicationInsightsTelemetryContractBase
+            BatchHeader currentHeader   = BatchHeader::getCurrentBatchHeader();
+            Batch       currentTask     =   BatchHeader::getCurrentBatchTask();
+
+            if(currentHeader)
+            {
+                this.addBaseProperty(ISMTelemetryProperties::BatchJobId, int642Str(currentHeader.parmBatchHeaderId()));
+                this.addBaseProperty(ISMTelemetryProperties::BatchCaption, currentHeader.parmCaption());
+            }
+
+            if(currentTask)
+            {
+                this.addBaseProperty(ISMTelemetryProperties::BatchJobTaskId, int642Str(currentTask.RecId));
+            }
+            */
+        }
+        catch
+        {
+            warning(strFmt("@ISM:ISMTelemetryRuntimePropertyError", classId2Name(classIdGet(this))));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>addCallStack</Name>
+				<Source><![CDATA[
+    /// <summary>
+    ///  Adds the call stack to the telemetry
+    /// </summary>
+    public void addCallStack(boolean _compressCallStack = true)
+    {
+        try
+        {
+            str callStackStr;
+            container ismCallStack = xSession::xppCallStack();
+
+            for (int i = 1; i <= conlen(ismCallStack); i+=4)
+            {
+                // 1: Calling object and method name, e.g. ISMTelemetryBase[class]\`addCallStack(Boolean _compressCallStack, Boolean @_compressCallStack_IsDefaultSet)
+                callStackStr += conpeek(ismCallStack, i) + ' ';
+
+                // 2: Line number, e.g. 152; can be 0
+                int lineNumber = conpeek(ismCallStack, i + 1);
+                if (lineNumber > 0)
+                {
+                    callStackStr += 'Line ' + int2str(lineNumber) + ' ';
+                }
+            
+                // 3: Publisher, e.g. contoso; can be empty
+                callStackStr += 'in ' + conpeek(ismCallStack, i + 3);
+            
+                // 4: Assembly name, e.g. ISModel
+                str publisher = conpeek(ismCallStack, i + 2);
+                if (publisher)
+                {
+                    callStackStr += ' by ' + publisher;
+                }
+            
+                callStackStr += '\n';
+            }
+            this.addRuntimeProperty(
+            ISMTelemetryProperties::CallStack, callStackStr, _compressCallStack);
+
+        }
+        catch
+        {
+            warning(strFmt("@ISM:ISMTelemetryAddCallStackError", classId2Name(classIdGet(this))));
+        }
+    
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>addBaseProperty</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Adds the base property to the telemetry
+    /// </summary>
+    /// <param name = "_key">Key of the property</param>
+    /// <param name = "_value">Value of the property</param>
+    /// <param name = "_compressData">Compress data; optional</param>
+    protected void addBaseProperty(str _key, str _value, boolean _compressData = false)
+    {
+        try
+        {
+            if (_compressData)
+            {
+                this.compressData(_key, _value, true);
+            }
+            else
+            {
+                basePropertyMap.insert(_key, _value);
+            }
+        }
+        catch
+        {
+            warning(strFmt("@ISM:ISMTelemetryRuntimePropertyError", classId2Name(classIdGet(this))));
+        }
+  
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>addRuntimeProperty</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Adds the runtime property to the telemetry
+    /// </summary>
+    /// <param name = "_key">Key of the property</param>
+    /// <param name = "_value">Value of the property</param>
+    /// <param name = "_compressData">Compress data; optional</param>
+    public void addRuntimeProperty(str _key, str _value, boolean _compressData = false)
+    {
+        //find the old property:
+        //check if theres a base property and update that one with the new value
+        // If you want to have always a property present in the telemetry, you declare it as base property but can then "addRuntimeProperty" to update it if in the
+        // process the property is supposed to change
+
+        try
+        {
+            if (basePropertyMap.exists(_key))
+            {
+                this.addBaseProperty(_key, _value, _compressData);
+            }
+            else
+            {
+                if (_compressData)
+                {
+                    this.compressData(_key, _value, false);
+                }
+                else
+                {
+                    runtimePropertyMap.insert(_key, _value);
+                }
+                
+            }
+        }
+        catch
+        {
+            warning(strFmt("@ISM:ISMTelemetryRuntimePropertyError",classId2Name(classIdGet(this))));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>compressData</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Compresses the string data and logs it.
+    /// </summary>
+    /// <param name = "_property">Property name</param>
+    /// <param name = "_data">data</param>
+    /// <param name = "_isBaseProperty">is base property</param>
+    private void compressData(str _property, str _data, boolean _isBaseProperty)
+    {
+        try
+        {
+            System.String inputString = _data;
+            System.IO.MemoryStream memoryStream = new System.IO.MemoryStream();
+            System.IO.Compression.GZipStream gzip = new System.IO.Compression.GZipStream(memoryStream, System.IO.Compression.CompressionMode::Compress);
+            System.Text.Encoding utf8 = System.Text.Encoding::UTF8;
+            System.Byte[] byteArray = utf8.GetBytes(inputString);
+    
+            gzip.Write(byteArray, 0, byteArray.get_Length());
+            gzip.Close();
+    
+            byteArray = memoryStream.ToArray();
+    
+            // Optionally convert to base64 for easier handling
+            str compressedBase64 = System.Convert::ToBase64String(byteArray);
+    
+            memoryStream.Dispose();
+            gzip.Dispose();
+    
+            this.splitAndProcessString(_property, compressedBase64, _isBaseProperty);
+        }
+        //in case of any failue, add the data as is
+        catch
+        {
+            if (_isBaseProperty)
+            {
+                basePropertyMap.insert(_property, _data);
+            }
+            else
+            {
+                runtimePropertyMap.insert(_property, _data);
+            }
+        }
+
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>splitAndProcessString</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Splits the string into chunks and logs it.
+    /// </summary>
+    /// <param name = "_property">Property</param>
+    /// <param name = "_data">Data</param>
+    /// <param name = "_isBaseProperty">Is base property</param>
+    ///
+    private void splitAndProcessString(str _property, str _data, boolean _isBaseProperty)
+    {
+        int chunkLength = 8000;
+
+        //check if a split is needed at all
+        if (strLen(_data) <= chunkLength)
+        {
+            if (_isBaseProperty)
+            {
+                basePropertyMap.insert(_property, _data);
+            }
+            else
+            {
+                runtimePropertyMap.insert(_property, _data);
+            }
+            return;
+        }
+
+        int startPosition = 1;
+        int i = 1; // TODO: Review: The value never changes.
+    
+        while (startPosition <= strLen(_data))
+        {
+            // Calculate the remaining length of the string
+            int remainingLength = strLen(_data) - startPosition + 1;
+        
+            // Determine the length of the current chunk
+            if (remainingLength < chunkLength)
+            {
+                chunkLength = remainingLength;
+            }
+        
+            // Extract a substring of the determined length from the original string
+            str chunk = substr(_data, startPosition, chunkLength);
+        
+            // Move the start position for the next chunk
+            startPosition += chunkLength;
+
+            //add the values to the map
+            if (_isBaseProperty)
+            {
+                basePropertyMap.insert(strFmt('%1%2', _property, i), chunk);
+            }
+            else
+            {
+                runtimePropertyMap.insert(strFmt('%1%2', _property, i), chunk);
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setElapsedMilliseconds</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Calculates the elapsed milliseconds and adds it to the telemetry
+    /// </summary>
+    protected void setElapsedMilliseconds()
+    {
+        // Get the elapsed milliseconds without stopping the stopwatch
+        int64 elapsedMilliseconds = stopwatch.get_ElapsedMilliseconds();
+        this.addRuntimeProperty(ISMTelemetryProperties::ElapsedMilliseconds, int642str(elapsedMilliseconds));
+        stopWatch.Restart();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>clearRuntimeProperties</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Clears runtime properties
+    /// </summary>
+    public void clearRuntimeProperties()
+    {
+        try
+        {
+            runtimePropertyMap = new Map(Types::String, Types::String);
+        }
+        catch
+        {
+            warning(strFmt("@ISM:ISMTelemetryRuntimePropertyError",classId2Name(classIdGet(this))));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>shouldSkipLogging</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Validates if telemetry should be logged
+    /// </summary>
+    /// <returns>bool wheter to log telemetry or not</returns>
+    internal boolean shouldSkipLogging()
+    {
+        if (!this.shouldLogEvent())
+        {
+            return true;
+        }
+
+        if (!logParams.IsEnabled)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>shouldSkipOnSeverityLevel</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Validates if telemetry should be logged based on severity level
+    /// </summary>
+    /// <param name = "_severity"> Severity level </param>
+    /// <returns>bool wheter to log telemetry or not</returns>
+    protected boolean shouldSkipOnSeverityLevel(ISMTelemetrySeverityLevel _severity)
+    {
+        return logParams.SeverityLevel > _severity;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processEvent</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Method processEvent
+    /// </summary>
+    /// <param name = "_name"> Name of the event </param>
+    public final void processEvent(str _name = '')
+    {
+        try
+        {
+            str name = _name;
+            if (this.shouldSkipLogging())
+            {
+                return;
+            }
+
+            if (!name)
+            {
+                name = this.telemetryName();
+            }
+
+            this.addStandardProperties();
+            this.setElapsedMilliseconds();
+            this.postPopulateProperties();
+            this.logEvent(this.eventId, name);
+        }
+        catch
+        {
+            warning(strFmt("@ISM:ISMTelemetryEventError", classId2Name(classIdGet(this)), _name));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>telemetryName</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Class telemetryName
+    /// </summary>
+    /// <returns>Telemetry</returns>
+    protected ClassName telemetryName()
+    {
+        return classId2Name(classIdGet(this));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>telemetryConfigurationName</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Defines the class used for the telemetry configuration
+    /// </summary>
+    /// <returns>The telemetry configuration class name</returns>
+    /// <remarks>
+    /// If a telemetry requires custom configuration, override this method in the telemetry subclass.
+    /// </remarks>
+    protected ClassName telemetryConfigurationName()
+    {
+        return classStr(ISMTelemetryBaseContract);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getContractDefiningMethodName</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Defines the method name used by the SysOperation framework to determine the contract class
+    /// for the configuration dialog.
+    /// </summary>
+    /// <returns>The method name defining the configuration contract class.</returns>
+    /// <remarks>
+    /// Overwrite this method in the subclass if a custom configuration is required for a telemetry.
+    /// If not overwritten, an empty dummy contract is used.
+    /// </remarks>
+    public MethodName getContractDefiningMethodName()
+    {
+        return methodStr(ISMTelemetryBase, defineBaseContract);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>defineBaseContract</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Method signature provides the contract class to the SysOperation framework to
+    /// dynamically generate the configuration dialog.
+    /// </summary>
+    /// <param name = "_contract">Parameter to define the contract class</param>
+    /// <remarks>
+    /// Method is not called, only defines the contract class via its signature.
+    /// If a telemetry requires custom configuration, create a new define[TelemetryName]Contract
+    /// method in the subclass. The method name needs to be specified by the override of the
+    /// getContractDefiningMethodName method.
+    /// </remarks>
+    public void defineBaseContract(ISMTelemetryBaseContract _contract)
+    {
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>fillConfigurationContract</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// This method fills the configuration contract of the base telemetry with the necessary values.
+    /// </summary>
+    /// <param name = "_contract">The contract to fill with configuration values</param>
+    /// <remarks>
+    /// If a telemetry requires custom configuration, override this method in the telemetry 
+    /// subclass with the correct configuration class for the _contract parameter.
+    /// </remarks>
+    public void fillConfigurationContract(SysPackable _contract)
+    {
+        ISMTelemetryBaseContract contract;
+        if (_contract && _contract is ISMTelemetryBaseContract)
+        {
+            contract = _contract as ISMTelemetryBaseContract;
+            if (telemetryConfig != null)
+            {
+                contract.unpack(telemetryConfig.pack());
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setConfigurationFromContract</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Sets the telemetry configuration based on the given contract.
+    /// </summary>
+    /// <param name = "_contract">The contract to use for the telemetry configuration.</param>
+    public void setConfigurationFromContract(SysPackable _contract)
+    {
+        this.setTelemetryConfiguration(_contract);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setTelemetryConfiguration</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Sets the telemetry configuration of the base telemetry based on the given contract.
+    /// </summary>
+    /// <param name = "_config">The configuration contract to use for base telemetry setup.</param>
+    /// <remarks>
+    /// If a telemetry requires custom configuration, override this method in the telemetry with
+    /// the correct configuration class for the _config parameter.
+    /// </remarks>
+    protected void setTelemetryConfiguration(SysPackable _config)
+    {
+        telemetryConfig = _config as ISMTelemetryBaseContract;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getConfigurationContainer</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Gets the telemetry configuration as a container.
+    /// </summary>
+    /// <returns>The telemetry configuration container.</returns>
+    public container getConfigurationContainer()
+    {
+        return telemetryConfig.pack();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>configurationDescription</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Defines the description of the telemetry configuration
+    /// </summary>
+    /// <returns>The description of the telemetry configuration</returns>
+    public ClassDescription configurationDescription()
+    {
+        return strFmt("@ISM:ISMTelemetryConfigurationDescription", this.telemetryName());
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processTrace</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Method processTrace
+    /// </summary>
+    /// <param name = "_traceMessage">Message of the trace</param>
+    /// <param name = "_severity">Severity of the trace; optional </param>
+    public final void processTrace(str _traceMessage, ISMTelemetrySeverityLevel _severity = ISMTelemetrySeverityLevel::Information)
+    {
+        try
+        {
+            if (this.shouldSkipLogging())
+            {
+                return;
+            }
+
+            if (this.shouldSkipOnSeverityLevel(_severity))
+            {
+                return;
+            }
+
+            this.addStandardProperties();
+            this.setElapsedMilliseconds();
+            this.postPopulateProperties();
+            this.logTrace(_traceMessage, _severity);
+        }
+        catch
+        {
+            warning(strFmt("@ISM:ISMTelemetryTraceError", classId2Name(classIdGet(this)), _traceMessage));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>postPopulateProperties</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Method Populate properties. This housld be implemented by the concrete class that extends this base.
+    /// </summary>
+    protected abstract void postPopulateProperties()
+    {
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>metricName</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Class metricName
+    /// </summary>
+    /// <returns>Telemetry</returns>
+    protected ClassName metricName()
+    {
+        return classId2Name(classIdGet(this));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>logMetric</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Logs a metric
+    /// </summary>
+    /// <param name="_value">Value of the metric</param>
+    protected void logMetric(real _value)
+    {
+        SysApplicationInsightsTelemetryLogger::instance().trackMetric(this.metricName(), _value);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>logMetricWithDimensions</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Logs a metric with dimensions
+    /// </summary>
+    /// <param name="_value">Value of the metric</param>
+    /// <param name="_dimension1Name">Name of the first dimension</param>
+    /// <param name="_dimension1Value">Value of the first dimension</param>
+    /// <param name="_dimension2Name">Name of the second dimension</param>
+    /// <param name="_dimension2Value">Value of the second dimension</param>
+    /// <param name="_dimension3Name">Name of the third dimension</param>
+    /// <param name="_dimension3Value">Value of the third dimension</param>
+    protected void logMetricWithDimensions(real _value, str _dimension1Name, str _dimension1Value, str _dimension2Name = '', str _dimension2Value = '', str _dimension3Name = '', str _dimension3Value = '')
+    {
+        SysApplicationInsightsTelemetryLogger::instance().trackMetricWithDimensions(this.metricName(), _value, _dimension1Name, _dimension1Value, _dimension2Name, _dimension2Value, _dimension3Name, _dimension3Value);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>logEvent</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Method Log
+    /// </summary>
+    /// <param name = "_eventId"> Event Id </param>
+    /// <param name = "_name"> Name of the event </param>
+    protected void logEvent(str _eventId, str _name)
+    {
+        SysApplicationInsightsEventTelemetry eventTelemetry = SysApplicationInsightsEventTelemetry::newFromEventIdName(_eventId, _name);
+
+        // Get an iterator for the map
+        MapIterator iterator = new MapIterator(basePropertyMap);
+
+        // Loop through the map & add base properties
+        while (iterator.more())
+        {
+            str key = iterator.key();
+            str value = iterator.value();
+            
+            ISMTelemetryProperty property = ISMTelemetryProperty::construct(key, value, SysApplicationInsightsComplianceDataType::CustomerContent);
+            eventTelemetry.addProperty(property);
+            iterator.next();
+        }
+
+        //add runtime properties:
+        iterator = new MapIterator(runtimePropertyMap);
+
+        // Loop through the map & add base properties
+        while (iterator.more())
+        {
+            str key = iterator.key();
+            str value = iterator.value();
+            
+            ISMTelemetryProperty property = ISMTelemetryProperty::construct(key, value, SysApplicationInsightsComplianceDataType::CustomerContent);
+            eventTelemetry.addProperty(property);
+            iterator.next();
+        }
+
+        SysApplicationInsightsTelemetryLogger::instance().trackEvent(eventTelemetry);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>shouldLogEvent</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Enables implement custom conditions for e.g. events for the customer to use to save costs, or log events conditionally!
+    /// If this one is implemented it will always win over the logEvent method
+    /// </summary>
+    /// <returns>bool wheter to log the event or not</returns>
+    protected abstract boolean shouldLogEvent()
+    {
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>logTrace</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Method Log
+    /// </summary>
+    /// <param name = "_traceMessage">Message of the trace</param>
+    /// <param name = "_severity">Severity of the trace; optional</param>
+    protected void logTrace(str _traceMessage, ISMTelemetrySeverityLevel _severity = ISMTelemetrySeverityLevel::Information)
+    {
+        DataContracts.SeverityLevel dotNetSeverity;
+        switch (_severity)
+        {
+            case ISMTelemetrySeverityLevel::Critical:
+                dotNetSeverity = DataContracts.SeverityLevel::Critical;
+                break;
+            case ISMTelemetrySeverityLevel::Error:
+                dotNetSeverity = DataContracts.SeverityLevel::Error;
+                break;
+            case ISMTelemetrySeverityLevel::Warning:
+                dotNetSeverity = DataContracts.SeverityLevel::Warning;
+                break;
+            case ISMTelemetrySeverityLevel::Information:
+                dotNetSeverity = DataContracts.SeverityLevel::Information;
+                break;
+            case ISMTelemetrySeverityLevel::Verbose:
+                dotNetSeverity = DataContracts.SeverityLevel::Verbose;
+                break;
+            default:
+                dotNetSeverity = DataContracts.SeverityLevel::Information;
+                break;
+        }
+
+        SysApplicationInsightsTraceTelemetry traceTelemetry = SysApplicationInsightsTraceTelemetry::newFromMessageAndSeverity(_traceMessage, dotNetSeverity);
+
+        // Iterate through the list and add to traceTelemetry
+        // Get an iterator for the map
+        MapIterator iterator = new MapIterator(basePropertyMap);
+
+        // Loop through the map & add base properties
+        while (iterator.more())
+        {
+            str key = iterator.key();
+            str value = iterator.value();
+            
+            ISMTelemetryProperty property = ISMTelemetryProperty::construct(key, value, SysApplicationInsightsComplianceDataType::CustomerContent);
+            traceTelemetry.addProperty(property);
+            iterator.next();
+        }
+
+        //add runtime properties:
+        iterator = new MapIterator(runtimePropertyMap);
+
+        // Loop through the map & add base properties
+        while (iterator.more())
+        {
+            str key = iterator.key();
+            str value = iterator.value();
+            
+            ISMTelemetryProperty property = ISMTelemetryProperty::construct(key, value, SysApplicationInsightsComplianceDataType::CustomerContent);
+            traceTelemetry.addProperty(property);
+            iterator.next();
+        }
+
+        SysApplicationInsightsTelemetryLogger::instance().trackTrace(traceTelemetry);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>logException</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Method Log
+    /// </summary>
+    /// <param name = "_message"> Message of the exception </param>
+    protected void logException(str _message)
+    {
+        SysApplicationInsightsExceptionTelemetry exceptionTelemetry = SysApplicationInsightsExceptionTelemetry::newFromExceptionMessage(_message);
+
+        // Get an iterator for the map
+        MapIterator iterator = new MapIterator(basePropertyMap);
+
+        // Loop through the map & add base properties
+        while (iterator.more())
+        {
+            str key = iterator.key();
+            str value = iterator.value();
+            
+            ISMTelemetryProperty property = ISMTelemetryProperty::construct(key, value, SysApplicationInsightsComplianceDataType::CustomerContent);
+            exceptionTelemetry.addProperty(property);
+            iterator.next();
+        }
+
+        //add runtime properties:
+        iterator = new MapIterator(runtimePropertyMap);
+
+        // Loop through the map & add base properties
+        while (iterator.more())
+        {
+            str key = iterator.key();
+            str value = iterator.value();
+            
+            ISMTelemetryProperty property = ISMTelemetryProperty::construct(key, value, SysApplicationInsightsComplianceDataType::CustomerContent);
+            exceptionTelemetry.addProperty(property);
+            iterator.next();
+        }
+
+        SysApplicationInsightsTelemetryLogger::instance().trackException(exceptionTelemetry);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

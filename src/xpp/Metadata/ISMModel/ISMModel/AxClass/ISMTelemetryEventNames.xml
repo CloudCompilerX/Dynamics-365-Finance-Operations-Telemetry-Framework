@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>ISMTelemetryEventNames</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+/// <summary>
+/// Defines Telemetry event names logged into AppInsights
+/// </summary>
+public final class ISMTelemetryEventNames
+{
+    public const str ISMEventName                   = 'ISMEventName';
+    public const str BatchJobStatusUpdate           = 'BatchJobStatusUpdate';
+    public const str BatchJobCreated                = 'BatchJobCreated';
+    public const str BatchStatusUpdate              = 'BatchStatusUpdate';
+    public const str DMFExportPackage               = 'DMFExportPackage';
+    public const str DMFExportFile                  = 'DMFExportFile';
+    public const str DMFImport                      = 'DMFImport';
+    public const str DMFStagingLogMessage           = 'DMFStagingLogMessage';
+    public const str DMFStagingLogDetailMessage     = 'DMFStagingLogDetailMessage';
+    public const str ExcelExportStarted             = 'ExcelExportStarted';
+    public const str ExcelExportEnded               = 'ExcelExportEnded';
+    public const str ExcelExportProgress            = 'ExcelExportProgress';
+    public const str DualWriteMapStarted            = 'DualWriteMapStarted';
+    public const str DualWriteMapStopped            = 'DualWriteMapStopped';
+    public const str DualWriteMapPaused             = 'DualWriteMapPaused';
+    public const str BusinessEventFailed            = 'BusinessEventFailed';
+    public const str BusinessEventSavedInCommitLog  = 'BusinessEventSavedInCommitLog';
+    public const str BusinessEventSent              = 'BusinessEventSent';
+    public const str CostActivateItem               = 'CostActivateItem';
+
+}
+]]></Declaration>
+		<Methods />
+	</SourceCode>
+</AxClass>

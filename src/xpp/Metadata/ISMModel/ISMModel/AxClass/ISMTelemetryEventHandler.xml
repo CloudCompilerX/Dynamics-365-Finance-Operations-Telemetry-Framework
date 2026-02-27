@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>ISMTelemetryEventHandler</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+/// <summary>
+/// Handles ISM telemetry events from the SysIntParameters form.
+/// </summary>
+internal final class ISMTelemetryEventHandler
+{
+    
+
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>sysIntParameters_OnInitializing</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Initializes the telemetry parameter setups.
+    /// </summary>
+    /// <param name="sender">sender</param>
+    /// <param name="e">event arguments</param>
+    [SuppressBPWarning('BPParameterNotUsed', 'Parameter required by the event interface.'),
+    FormEventHandler(formStr(SysIntParameters), FormEventType::Initializing)]
+    public static void sysIntParameters_OnInitializing(xFormRun sender, FormEventArgs e)
+    {
+        ISMTelemetryParameterSetup::initializeParameterSetups();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ISMTelemetryConfiguration_OnClicked</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Opens the telemetry configuration dialog for the selected telemetry parameter setup.
+    /// </summary>
+    /// <param name="sender">The sender of the event.</param>
+    /// <param name="e">Event arguments associated with the event.</param>
+    [
+        SuppressBPWarning('BPParameterNotUsed', 'Parameter required by the event interface.'),
+        FormControlEventHandler(
+            formControlStr(SysIntParameters, ISMTelemetryConfiguration), 
+            FormControlEventType::Clicked)
+    ]
+    public static void ISMTelemetryConfiguration_OnClicked(
+        FormControl sender, 
+        FormControlEventArgs e)
+    {
+        FormRun formRun = sender.formRun();
+        FormDataSource formDataSource = 
+            formRun.dataSource(formDataSourceStr(SysIntParameters, ISMTelemetryParameterSetup));
+        ISMTelemetryParameterSetup telemetryParameterSetup = formDataSource.cursor();
+        DictClass dictClass = new DictClass(className2Id(telemetryParameterSetup.TelemetryClass));
+        ISMTelemetryBase telemetry = dictClass.makeObject();
+        if (ISMTelemetryConfigurationDialogController::telemetryConfigurationDialog(telemetry))
+        {
+            telemetryParameterSetup.TelemetryConfiguration = telemetry.getConfigurationContainer();
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ISMTelemetryReinitializeParameterSetups_OnClicked</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Handles the click event for reinitializing telemetry parameter setups.
+    /// </summary>
+    /// <param name="sender">The sender of the event.</param>
+    /// <param name="e">Event arguments associated with the event.</param>
+    [
+        SuppressBPWarning('BPParameterNotUsed', 'Parameter required by the event interface.'),
+        FormControlEventHandler(
+            formControlStr(SysIntParameters, ISMTelemetryReinitializeParameterSetups), 
+            FormControlEventType::Clicked)
+    ]
+    public static void ISMTelemetryReinitializeParameterSetups_OnClicked(
+        FormControl sender, FormControlEventArgs e)
+    {
+        ISMTelemetryParameterSetup::reinitializeParameterSetups();
+        sender.formRun().dataSource(
+            formDataSourceStr(SysIntParameters, ISMTelemetryParameterSetup)).research();
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>
